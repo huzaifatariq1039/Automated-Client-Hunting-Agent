@@ -1,0 +1,453 @@
+{
+  "name": "WebCorps Project Hunting Agent v2 (Zero Budget)",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [{ "field": "hours", "hoursInterval": 6 }]
+        }
+      },
+      "id": "schedule-trigger",
+      "name": "Every 6 Hours",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [180, 400],
+      "notes": "Runs every 6 hours automatically. You can change the interval here."
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            { "id": "1", "name": "upwork_rss_url", "value": "https://www.upwork.com/ab/feed/jobs/rss?q=wordpress+woocommerce+web+app+automation+figma+seo&sort=recency&paging=0%3B20", "type": "string" },
+            { "id": "2", "name": "fiverr_search_url", "value": "https://www.fiverr.com/search/gigs?query=wordpress+website+development&filter=auto&locale=en&offset=0", "type": "string" },
+            { "id": "3", "name": "apify_actor_id", "value": "nwua9Gu5YrADL7ZDj", "type": "string" },
+            { "id": "4", "name": "apify_api_token", "value": "YOUR_APIFY_API_TOKEN", "type": "string" },
+            { "id": "5", "name": "google_sheet_id", "value": "YOUR_GOOGLE_SHEET_ID", "type": "string" },
+            { "id": "6", "name": "gemini_api_key", "value": "YOUR_GEMINI_API_KEY", "type": "string" },
+            { "id": "7", "name": "maps_search_query", "value": "restaurant in Islamabad", "type": "string" },
+            { "id": "8", "name": "maps_search_city", "value": "Islamabad", "type": "string" },
+            { "id": "9", "name": "team_email", "value": "your@webcorps.com", "type": "string" }
+          ]
+        }
+      },
+      "id": "set-config",
+      "name": "Config",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [380, 400],
+      "notes": "ALL configuration lives here. Update: apify_api_token, google_sheet_id, gemini_api_key, team_email, maps_search_query"
+    },
+
+    {
+      "parameters": {
+        "url": "={{ $json.upwork_rss_url }}",
+        "options": {
+          "response": { "response": { "responseFormat": "text" } }
+        }
+      },
+      "id": "upwork-fetch",
+      "name": "Upwork RSS Fetch",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [640, 160],
+      "notes": "Fetches Upwork RSS feed. No API key needed - this is publicly accessible. To get your own RSS URL: Upwork > Find Work > search keywords > Save Search > RSS"
+    },
+    {
+      "parameters": {
+        "jsCode": "const xml = $input.first().json.data || '';\nconst items = [];\nconst itemRegex = /<item>([\\s\\S]*?)<\\/item>/g;\nlet match;\nconst SERVICE_KEYWORDS = {\n  'WooCommerce & E-commerce Dev': ['woocommerce', 'ecommerce', 'e-commerce', 'shopify', 'online store'],\n  'AI Automation & Workflow Integration': ['automation', 'n8n', 'zapier', 'make.com', 'workflow', 'ai agent', 'chatbot'],\n  'UI/UX Design (Figma)': ['figma', 'ui/ux', 'ui design', 'ux design', 'wireframe', 'prototype'],\n  'SEO & Performance Optimization': ['seo', 'search engine', 'google ranking', 'performance', 'page speed'],\n  'Custom Web App Development': ['web app', 'web application', 'saas', 'dashboard', 'portal', 'custom software'],\n  'WordPress Dev': ['wordpress', 'wp', 'elementor', 'divi', 'cms']\n};\n\nwhile ((match = itemRegex.exec(xml)) !== null) {\n  const item = match[1];\n  const get = (tag) => {\n    const r = new RegExp(`<${tag}[^>]*><!\\\\[CDATA\\\\[([\\\\s\\\\S]*?)\\\\]\\\\]><\\/${tag}>|<${tag}[^>]*>([\\\\s\\\\S]*?)<\\/${tag}>`);\n    const m = item.match(r);\n    return m ? (m[1] || m[2] || '').trim() : '';\n  };\n  const title = get('title');\n  const link = get('link');\n  const rawDesc = get('description').replace(/<[^>]+>/g, '');\n  const description = rawDesc.substring(0, 600);\n  const pubDate = get('pubDate');\n  const budgetMatch = rawDesc.match(/Budget:\\s*\\$([\\d,]+)/i);\n  const budget = budgetMatch ? '$' + budgetMatch[1] : 'Not specified';\n\n  const combined = (title + ' ' + description).toLowerCase();\n  let matched_service = null;\n  let best_count = 0;\n  for (const [service, keywords] of Object.entries(SERVICE_KEYWORDS)) {\n    const count = keywords.filter(k => combined.includes(k)).length;\n    if (count > best_count) { best_count = count; matched_service = service; }\n  }\n  if (!matched_service) continue;\n\n  const budget_num = parseInt((budgetMatch ? budgetMatch[1] : '0').replace(/,/g, '')) || 0;\n  let priority = 'Low';\n  if (best_count >= 3 || budget_num >= 500) priority = 'High';\n  else if (best_count >= 2 || budget_num >= 200) priority = 'Medium';\n\n  items.push({\n    platform: 'Upwork',\n    title: title.substring(0, 120),\n    link,\n    description,\n    budget,\n    matched_service,\n    priority,\n    pub_date: pubDate,\n    contact: 'Via Upwork Proposal',\n    status: 'Pending'\n  });\n}\nreturn items.length > 0 ? items.map(i => ({ json: i })) : [{ json: { __empty: true, platform: 'Upwork' } }];"
+      },
+      "id": "parse-upwork",
+      "name": "Parse Upwork",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [880, 160]
+    },
+
+    {
+      "parameters": {
+        "url": "={{ $('Config').first().json.fiverr_search_url }}",
+        "options": {
+          "headers": {
+            "parameters": [
+              { "name": "User-Agent", "value": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36" },
+              { "name": "Accept-Language", "value": "en-US,en;q=0.9" }
+            ]
+          },
+          "response": { "response": { "responseFormat": "text" } }
+        }
+      },
+      "id": "fiverr-fetch",
+      "name": "Fiverr Search Fetch",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [640, 400],
+      "notes": "Scrapes Fiverr public search results. No login needed for gig search. To change what is searched, update 'fiverr_search_url' in the Config node."
+    },
+    {
+      "parameters": {
+        "jsCode": "const html = $input.first().json.data || '';\nconst items = [];\n\n// Extract gig data from Fiverr's JSON embedded in the page\nconst jsonMatch = html.match(/window\\.__RELAY_STORE__\\s*=\\s*(\\{[\\s\\S]*?\\});/);\nif (jsonMatch) {\n  try {\n    const store = JSON.parse(jsonMatch[1]);\n    const keys = Object.keys(store).filter(k => store[k] && store[k].title && store[k].sellerName);\n    for (const key of keys.slice(0, 20)) {\n      const gig = store[key];\n      const title = gig.title || '';\n      const seller = gig.sellerName || '';\n      const price = gig.price ? '$' + gig.price : 'See Fiverr';\n      const gigUrl = gig.url ? 'https://www.fiverr.com' + gig.url : '';\n      const desc = (gig.packageIncludes || gig.description || '').substring(0, 400);\n\n      const combined = title.toLowerCase();\n      const keywords = ['wordpress', 'woocommerce', 'web app', 'automation', 'figma', 'seo', 'ecommerce', 'website', 'ui ux'];\n      const matched = keywords.filter(k => combined.includes(k));\n      if (matched.length === 0) continue;\n\n      let matched_service = 'Web Development';\n      if (combined.includes('woocommerce') || combined.includes('ecommerce')) matched_service = 'WooCommerce & E-commerce Dev';\n      else if (combined.includes('automation')) matched_service = 'AI Automation & Workflow Integration';\n      else if (combined.includes('figma') || combined.includes('ui')) matched_service = 'UI/UX Design (Figma)';\n      else if (combined.includes('seo')) matched_service = 'SEO & Performance Optimization';\n      else if (combined.includes('wordpress')) matched_service = 'WordPress Dev';\n\n      items.push({\n        platform: 'Fiverr',\n        title,\n        link: gigUrl,\n        description: `Seller: ${seller}. ${desc}`,\n        budget: price,\n        matched_service,\n        priority: matched.length >= 2 ? 'Medium' : 'Low',\n        pub_date: new Date().toISOString(),\n        contact: `Fiverr seller: ${seller}`,\n        status: 'Pending'\n      });\n    }\n  } catch(e) {}\n}\n\n// Fallback: regex extraction if JSON not found\nif (items.length === 0) {\n  const gigRegex = /data-gig-id=\"(\\d+)\"[\\s\\S]*?class=\"gig-title\"[^>]*>([^<]+)</g;\n  let m;\n  while ((m = gigRegex.exec(html)) !== null) {\n    items.push({\n      platform: 'Fiverr',\n      title: m[2].trim(),\n      link: 'https://www.fiverr.com',\n      description: 'See Fiverr for full details',\n      budget: 'See Fiverr',\n      matched_service: 'Web Development',\n      priority: 'Low',\n      pub_date: new Date().toISOString(),\n      contact: 'Via Fiverr',\n      status: 'Pending'\n    });\n  }\n}\n\nreturn items.length > 0 ? items.map(i => ({ json: i })) : [{ json: { __empty: true, platform: 'Fiverr' } }];"
+      },
+      "id": "parse-fiverr",
+      "name": "Parse Fiverr",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [880, 400]
+    },
+
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://api.apify.com/v2/acts/{{ $('Config').first().json.apify_actor_id }}/run-sync-get-dataset-items?token={{ $('Config').first().json.apify_api_token }}&timeout=120",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [{ "name": "Content-Type", "value": "application/json" }]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "",
+              "value": "={\n  \"searchStringsArray\": [\n    \"{{ $('Config').first().json.maps_search_query }}\",\n    \"clinic in {{ $('Config').first().json.maps_search_city }}\",\n    \"salon in {{ $('Config').first().json.maps_search_city }}\",\n    \"law firm in {{ $('Config').first().json.maps_search_city }}\"\n  ],\n  \"maxCrawledPlacesPerSearch\": 10,\n  \"language\": \"en\",\n  \"exportPlaceUrls\": false,\n  \"includeHistogram\": false,\n  \"includeOpeningHours\": false,\n  \"includePeopleAlsoSearch\": false,\n  \"additionalInfo\": false\n}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "apify-maps-fetch",
+      "name": "Apify Google Maps Scraper",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [640, 640],
+      "notes": "Uses Apify's free Google Maps Scraper actor (nwua9Gu5YrADL7ZDj). Free plan gives $5 credits/month — enough for ~400 place lookups. Sign up at apify.com, get API token, paste in Config node."
+    },
+    {
+      "parameters": {
+        "jsCode": "const places = $input.first().json;\nconst results = Array.isArray(places) ? places : (places.items || []);\nconst items = [];\n\nfor (const place of results) {\n  const name = place.title || place.name || '';\n  const address = place.address || place.street || '';\n  const phone = place.phone || place.phoneUnformatted || '';\n  const website = place.website || '';\n  const rating = parseFloat(place.totalScore || place.rating || 0);\n  const reviews = parseInt(place.reviewsCount || place.user_ratings_total || 0);\n  const category = (place.categoryName || place.types || ['business'])[0] || 'business';\n  const url = place.url || place.website || `https://maps.google.com/?q=${encodeURIComponent(name)}`;\n\n  if (!name) continue;\n\n  // Target: no website, or low rating/reviews = needs digital help\n  const needs_website = !website || website === '';\n  const weak_presence = rating < 3.8 || reviews < 15;\n  if (!needs_website && !weak_presence) continue;\n\n  const priority = needs_website ? 'High' : (rating < 3.5 ? 'High' : 'Medium');\n  const reason = needs_website ? 'No website found' : `Low rating (${rating}) or few reviews (${reviews})`;\n\n  items.push({\n    platform: 'Google Maps',\n    title: `${name} — ${reason}`,\n    link: url,\n    description: `Business: ${name}. Category: ${category}. Address: ${address}. Rating: ${rating}/5 (${reviews} reviews). ${needs_website ? 'No website listed on Google Maps.' : 'Weak online presence.'}`,\n    budget: 'To be discussed',\n    matched_service: 'WordPress Website Design & Dev',\n    priority,\n    pub_date: new Date().toISOString(),\n    contact: phone || 'Find via Google Maps',\n    status: 'Pending',\n    business_name: name,\n    business_phone: phone,\n    business_address: address\n  });\n}\n\nreturn items.length > 0 ? items.map(i => ({ json: i })) : [{ json: { __empty: true, platform: 'Google Maps' } }];"
+      },
+      "id": "parse-maps",
+      "name": "Parse Google Maps",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [880, 640]
+    },
+
+    {
+      "parameters": {
+        "mode": "combine",
+        "combinationMode": "mergeByPosition",
+        "options": { "includeUnpaired": true }
+      },
+      "id": "merge-leads",
+      "name": "Merge All Leads",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "position": [1120, 400]
+    },
+
+    {
+      "parameters": {
+        "operation": "read",
+        "documentId": { "__rl": true, "value": "={{ $('Config').first().json.google_sheet_id }}", "mode": "id" },
+        "sheetName": { "__rl": true, "value": "Leads", "mode": "name" },
+        "options": {}
+      },
+      "id": "read-sheet",
+      "name": "Read Existing Leads",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.4,
+      "position": [1120, 620],
+      "notes": "Reads existing leads to prevent duplicates. Create a Google Sheet with a tab called 'Leads'. Share it with your Google account."
+    },
+
+    {
+      "parameters": {
+        "jsCode": "const allLeads = $('Merge All Leads').all().map(i => i.json).filter(l => !l.__empty);\nconst existing = $('Read Existing Leads').all().map(i => i.json);\nconst seenLinks = new Set(existing.map(l => (l.Link || l.link || '').trim()).filter(Boolean));\nconst seenTitles = new Set(existing.map(l => (l.Title || l.title || '').toLowerCase().trim()).filter(Boolean));\n\nconst fresh = allLeads.filter(lead => {\n  if (!lead.title || !lead.platform) return false;\n  const link = (lead.link || '').trim();\n  const title = (lead.title || '').toLowerCase().trim();\n  if (link && seenLinks.has(link)) return false;\n  if (title && seenTitles.has(title)) return false;\n  return true;\n});\n\nif (fresh.length === 0) {\n  return [{ json: { __no_new_leads: true, message: 'No new leads this run. All leads already in sheet.' } }];\n}\n\nreturn fresh.map(l => ({ json: l }));"
+      },
+      "id": "dedup",
+      "name": "Remove Duplicates",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1360, 400]
+    },
+
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": false },
+          "conditions": [
+            {
+              "id": "no-new",
+              "leftValue": "={{ $json.__no_new_leads }}",
+              "rightValue": true,
+              "operator": { "type": "boolean", "operation": "notEquals" }
+            }
+          ],
+          "combinator": "and"
+        }
+      },
+      "id": "has-leads",
+      "name": "New Leads Found?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [1580, 400]
+    },
+
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key={{ $('Config').first().json.gemini_api_key }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [{ "name": "Content-Type", "value": "application/json" }]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"contents\": [{\n    \"role\": \"user\",\n    \"parts\": [{\n      \"text\": \"You are a cold outreach expert for WebCorps, a digital agency. WebCorps services: WordPress Dev, Custom Web Apps, WooCommerce & E-commerce, AI Automation & Workflow Integration, Business Process Optimization, UI/UX Design (Figma), SEO & Performance Optimization.\\n\\nWrite a cold outreach email for this lead:\\nPlatform: {{ $json.platform }}\\nBusiness/Project: {{ $json.title }}\\nDetails: {{ $json.description }}\\nMatched Service: {{ $json.matched_service }}\\nBudget: {{ $json.budget }}\\n\\nRules:\\n- Max 5 sentences\\n- Sound human and helpful, not robotic\\n- Reference their specific need\\n- Mention the exact WebCorps service\\n- One clear CTA at the end\\n- Sign off: WebCorps Team | webcorps.com\\n\\nReply ONLY as valid JSON, no markdown, no backticks:\\n{\\\"subject\\\": \\\"...\\\", \\\"body\\\": \\\"...\\\"}\"\n    }]\n  }],\n  \"generationConfig\": {\n    \"temperature\": 0.7,\n    \"maxOutputTokens\": 512\n  }\n}",
+        "options": {}
+      },
+      "id": "gemini-generate",
+      "name": "Generate Message (Gemini Free)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1820, 280],
+      "notes": "Uses Gemini 2.5 Flash-Lite — FREE tier. 1,000 requests/day, 15 RPM. Get API key from: aistudio.google.com > Get API Key. Paste it in the Config node."
+    },
+
+    {
+      "parameters": {
+        "jsCode": "const lead = $('New Leads Found?').first().json;\nconst geminiResp = $input.first().json;\n\nlet subject = 'WebCorps Can Help With Your Project';\nlet body = `Hi,\\n\\nWe came across your project and believe WebCorps can help. We specialize in ${lead.matched_service} and have delivered similar work for clients before.\\n\\nWould you be open to a quick call this week?\\n\\nWebCorps Team | webcorps.com`;\n\ntry {\n  const raw = geminiResp?.candidates?.[0]?.content?.parts?.[0]?.text || '{}';\n  const clean = raw.replace(/```json|```/g, '').trim();\n  const parsed = JSON.parse(clean);\n  if (parsed.subject) subject = parsed.subject;\n  if (parsed.body) body = parsed.body;\n} catch(e) {}\n\nreturn [{ json: {\n  ...lead,\n  email_subject: subject,\n  email_body: body,\n  lead_id: 'WC-' + Date.now()\n}}];"
+      },
+      "id": "build-payload",
+      "name": "Build Email Payload",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2060, 280]
+    },
+
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": false },
+          "conditions": [
+            {
+              "id": "email-check",
+              "leftValue": "={{ $json.contact }}",
+              "rightValue": "@",
+              "operator": { "type": "string", "operation": "contains" }
+            }
+          ],
+          "combinator": "and"
+        }
+      },
+      "id": "has-email",
+      "name": "Has Email?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [2280, 280]
+    },
+
+    {
+      "parameters": {
+        "sendTo": "={{ $json.contact }}",
+        "subject": "={{ $json.email_subject }}",
+        "emailType": "text",
+        "message": "={{ $json.email_body }}",
+        "options": {
+          "senderName": "WebCorps Team",
+          "replyTo": "={{ $('Config').first().json.team_email }}"
+        }
+      },
+      "id": "send-email",
+      "name": "Send Gmail",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [2520, 160],
+      "notes": "Add your Gmail OAuth2 credential in n8n. Settings > Credentials > Add > Google OAuth2."
+    },
+
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": { "__rl": true, "value": "={{ $('Config').first().json.google_sheet_id }}", "mode": "id" },
+        "sheetName": { "__rl": true, "value": "Leads", "mode": "name" },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Lead ID": "={{ $json.lead_id }}",
+            "Platform": "={{ $json.platform }}",
+            "Title": "={{ $json.title }}",
+            "Link": "={{ $json.link }}",
+            "Description": "={{ $json.description }}",
+            "Budget": "={{ $json.budget }}",
+            "Matched Service": "={{ $json.matched_service }}",
+            "Priority": "={{ $json.priority }}",
+            "Status": "=Contacted",
+            "Contact": "={{ $json.contact }}",
+            "Outreach Message": "={{ $json.email_body }}",
+            "Date Discovered": "={{ $now.toISO() }}",
+            "Date Contacted": "={{ $now.toISO() }}"
+          }
+        },
+        "options": {}
+      },
+      "id": "log-contacted",
+      "name": "Log to Sheet (Contacted)",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.4,
+      "position": [2760, 160]
+    },
+
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": { "__rl": true, "value": "={{ $('Config').first().json.google_sheet_id }}", "mode": "id" },
+        "sheetName": { "__rl": true, "value": "Leads", "mode": "name" },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Lead ID": "={{ $json.lead_id }}",
+            "Platform": "={{ $json.platform }}",
+            "Title": "={{ $json.title }}",
+            "Link": "={{ $json.link }}",
+            "Description": "={{ $json.description }}",
+            "Budget": "={{ $json.budget }}",
+            "Matched Service": "={{ $json.matched_service }}",
+            "Priority": "={{ $json.priority }}",
+            "Status": "=Pending (No Email — contact manually)",
+            "Contact": "={{ $json.contact }}",
+            "Outreach Message": "={{ $json.email_body }}",
+            "Date Discovered": "={{ $now.toISO() }}",
+            "Date Contacted": ""
+          }
+        },
+        "options": {}
+      },
+      "id": "log-pending",
+      "name": "Log to Sheet (Pending)",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.4,
+      "position": [2520, 420]
+    },
+
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": false },
+          "conditions": [
+            {
+              "id": "priority-check",
+              "leftValue": "={{ $json.priority }}",
+              "rightValue": "High",
+              "operator": { "type": "string", "operation": "equals" }
+            }
+          ],
+          "combinator": "and"
+        }
+      },
+      "id": "is-high",
+      "name": "High Priority?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [2980, 280]
+    },
+
+    {
+      "parameters": {
+        "sendTo": "={{ $('Config').first().json.team_email }}",
+        "subject": "=🔥 High Priority Lead: {{ $json.title.substring(0, 60) }}",
+        "emailType": "html",
+        "message": "=<div style='font-family:Arial,sans-serif;max-width:600px;'><h2 style='color:#1E3A5F;'>🔥 High Priority Lead Found</h2><table border='1' cellpadding='10' cellspacing='0' style='border-collapse:collapse;width:100%;'><tr style='background:#D6E4F0;'><td><b>Platform</b></td><td>{{ $json.platform }}</td></tr><tr><td><b>Project / Business</b></td><td>{{ $json.title }}</td></tr><tr style='background:#D6E4F0;'><td><b>Matched Service</b></td><td>{{ $json.matched_service }}</td></tr><tr><td><b>Budget</b></td><td>{{ $json.budget }}</td></tr><tr style='background:#D6E4F0;'><td><b>Contact</b></td><td>{{ $json.contact }}</td></tr><tr><td><b>Link</b></td><td><a href='{{ $json.link }}'>View Lead →</a></td></tr></table><h3 style='color:#2E75B6;'>Outreach Message Sent:</h3><p style='background:#f5f5f5;padding:15px;border-left:4px solid #2E75B6;'>{{ $json.email_body }}</p><p><a href='https://docs.google.com/spreadsheets/d/{{ $('Config').first().json.google_sheet_id }}' style='background:#1E3A5F;color:white;padding:10px 20px;text-decoration:none;border-radius:4px;'>View Leads Sheet →</a></p></div>",
+        "options": {
+          "senderName": "WebCorps Agent"
+        }
+      },
+      "id": "notify-team",
+      "name": "Alert Team (High Priority)",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [3220, 160],
+      "notes": "Sends a beautiful HTML alert email to your team for every High Priority lead."
+    }
+  ],
+
+  "connections": {
+    "Every 6 Hours": {
+      "main": [[{ "node": "Config", "type": "main", "index": 0 }]]
+    },
+    "Config": {
+      "main": [[
+        { "node": "Upwork RSS Fetch", "type": "main", "index": 0 },
+        { "node": "Fiverr Search Fetch", "type": "main", "index": 0 },
+        { "node": "Apify Google Maps Scraper", "type": "main", "index": 0 }
+      ]]
+    },
+    "Upwork RSS Fetch": {
+      "main": [[{ "node": "Parse Upwork", "type": "main", "index": 0 }]]
+    },
+    "Parse Upwork": {
+      "main": [[{ "node": "Merge All Leads", "type": "main", "index": 0 }]]
+    },
+    "Fiverr Search Fetch": {
+      "main": [[{ "node": "Parse Fiverr", "type": "main", "index": 0 }]]
+    },
+    "Parse Fiverr": {
+      "main": [[{ "node": "Merge All Leads", "type": "main", "index": 1 }]]
+    },
+    "Apify Google Maps Scraper": {
+      "main": [[{ "node": "Parse Google Maps", "type": "main", "index": 0 }]]
+    },
+    "Parse Google Maps": {
+      "main": [[{ "node": "Merge All Leads", "type": "main", "index": 2 }]]
+    },
+    "Merge All Leads": {
+      "main": [[{ "node": "Remove Duplicates", "type": "main", "index": 0 }]]
+    },
+    "Read Existing Leads": {
+      "main": [[{ "node": "Remove Duplicates", "type": "main", "index": 1 }]]
+    },
+    "Remove Duplicates": {
+      "main": [[{ "node": "New Leads Found?", "type": "main", "index": 0 }]]
+    },
+    "New Leads Found?": {
+      "main": [
+        [{ "node": "Generate Message (Gemini Free)", "type": "main", "index": 0 }],
+        []
+      ]
+    },
+    "Generate Message (Gemini Free)": {
+      "main": [[{ "node": "Build Email Payload", "type": "main", "index": 0 }]]
+    },
+    "Build Email Payload": {
+      "main": [[{ "node": "Has Email?", "type": "main", "index": 0 }]]
+    },
+    "Has Email?": {
+      "main": [
+        [{ "node": "Send Gmail", "type": "main", "index": 0 }],
+        [{ "node": "Log to Sheet (Pending)", "type": "main", "index": 0 }]
+      ]
+    },
+    "Send Gmail": {
+      "main": [[{ "node": "Log to Sheet (Contacted)", "type": "main", "index": 0 }]]
+    },
+    "Log to Sheet (Contacted)": {
+      "main": [[{ "node": "High Priority?", "type": "main", "index": 0 }]]
+    },
+    "Log to Sheet (Pending)": {
+      "main": [[{ "node": "High Priority?", "type": "main", "index": 0 }]]
+    },
+    "High Priority?": {
+      "main": [
+        [{ "node": "Alert Team (High Priority)", "type": "main", "index": 0 }],
+        []
+      ]
+    }
+  },
+
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "callerPolicy": "workflowsFromSameOwner"
+  },
+  "tags": ["webcorps", "lead-hunting", "zero-budget", "v2"],
+  "meta": { "instanceId": "webcorps-agent-v2-zero-budget" }
+}
